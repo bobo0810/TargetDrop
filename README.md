@@ -11,4 +11,4 @@
 | 3.6        | 1.6.0       | Ubuntu |
 
 ## 算法框架
-![](https://github.com/bobo0810/TargetDrop/blob/master/imgs/TargetDrop.png)
+![](https://github.com/bobo0810/TargetDrop/blob/main/imgs/TargetDrop.png)
