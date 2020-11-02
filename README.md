@@ -2,7 +2,9 @@
 #### 收录到[PytorchNetHub](https://github.com/bobo0810/PytorchNetHub)
 
 ## 说明
-- 非官方，准备开源
+- 非官方
+- 基于注意力机制的Drop正则化方法
+- [ ] 精简代码
 
 # 环境
 

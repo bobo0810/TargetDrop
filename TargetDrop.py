@@ -72,8 +72,53 @@ class Select_TopK(Module):
         T.scatter_(dim=1,index=topk_index,src=value)
         return T.reshape(batch, channel, h, w)
 
+class Local_Mask(Module):
+    '''
+    针对标记通道，生成 位置mask
+    '''
+    def __init__(self,drop_block):
+        super(Local_Mask, self).__init__()
+        self.drop_block=torch.FloatTensor([drop_block]) # 屏蔽矩阵大小
+    def forward(self,x,T):
+        '''
+        :param x: 输入特征  [batch,channel,H,W]
+        :param T: 标记通道T 0-1  [batch,channel,1,1]
+        :return:
+        '''
+        batch, channel, h, w = x.shape
+        assert h >= self.drop_block.item() and w >= self.drop_block.item()
+        # ===========提取目标特征图x_mask===========
+        x=x.reshape(-1,h,w)
+        T=T.reshape(-1,1)
+        index = torch.nonzero(T, as_tuple=True)[0] #非0索引
+        x_mask=x[index]
+        # ===========每张特征图最大值索引max_index==========
+        x_mask_squeeze=x_mask.reshape(x_mask.shape[0],-1)
+        index=x_mask_squeeze.argmax(dim=1)
+        max_index = torch.cat(((index//h).unsqueeze(-1), (index % h).unsqueeze(-1)), 1)
+        # ===========生成kxk屏蔽矩阵S===========
+        S=torch.ones_like(x_mask)
 
+        max_index_h=max_index[:,0]
+        max_index_w=max_index[:, 1]
 
+        h1=max_index_h-(self.drop_block / 2.).floor().to(max_index_h.device)
+        h2=max_index_h+(self.drop_block / 2.).floor().to(max_index_h.device)
+        w1=max_index_w-(self.drop_block / 2.).floor().to(max_index_w.device)
+        w2 = max_index_w + (self.drop_block / 2.).floor().to(max_index_w.device)
+        h1, h2 = torch.clamp(torch.cat((h1.unsqueeze(0), h2.unsqueeze(0))), min=0, max=h - 1).int().cpu().numpy().tolist()  # 防止越界
+        w1, w2 = torch.clamp(torch.cat((w1.unsqueeze(0), w2.unsqueeze(0))), min=0, max=w - 1).int().cpu().numpy().tolist()
+        for i in range(len(S)):
+            S[i, h1[i]:h2[i], w1[i]:w2[i]] = 0
+
+        # 加权并规范化
+        S_reshape=S.reshape(S.shape[0],-1)
+        λ =S_reshape.shape[-1]/S_reshape.sum(dim=-1) # 规范化系数 公式（6）
+        x_mask=x_mask * S * λ.reshape(λ.shape[0],1,1)
+
+        # 根据序号放回原特征图中
+        x[index]=x_mask
+        return x.reshape(batch, channel, h, w)
 class TargetDrop(Module):
     def __init__(self, channels,reduction=16,drop_prob=0.15,drop_block=5):
         '''
@@ -92,13 +137,20 @@ class TargetDrop(Module):
         # 标记通道T 0-1
         self.Select_TopK = Select_TopK(int(channels * drop_prob))
 
+        # 针对标记通道，生成 位置mask
+        self.Local_Mask = Local_Mask(drop_block)
     def forward(self, x):
+        '''
+        :param x: 输入特征
+        :return:
+        '''
         if self.training:
             # 通道注意力权重  M∈[batch,channel,1,1]
             M = self.SEModule_Conv(x)
             # 标记通道 0-1    T∈[batch,channel,1,1]
             T = self.Select_TopK(M)
-            return 0
+            # 生成 位置mask   Mask_X∈[batch,channel,H,W]
+            return self.Local_Mask(x,T)
         else:
             return x  # eval模式无需drop
 
@@ -107,8 +159,8 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
     feature = torch.rand(8,64, 24,24).cuda()
-    target_drop = TargetDrop(channels=feature.shape[1]).cuda().train()
+    target_drop = TargetDrop(channels=feature.shape[1]).cuda()
+    target_drop =target_drop.train() # 训练模式
 
-    # 训练模式
     result = target_drop(feature)
     print(result.size())
