@@ -8,12 +8,13 @@ class SEModule(Module):
     '''
     SE模块 提取通道注意力权重（Conv替代FC层）
     '''
-    def __init__(self, channels, reduction):
+    def __init__(self, channels, reduction,L=4):
         super(SEModule, self).__init__()
         self.avg_pool = AdaptiveAvgPool2d(1)
-        self.fc1 = Conv2d(channels, channels // reduction, kernel_size=1, padding=0, bias=False)
+        d = max(channels // reduction, L)  # 下限
+        self.fc1 = Conv2d(channels, d , kernel_size=1, padding=0, bias=False)
         self.relu = ReLU(inplace=True)
-        self.fc2 = Conv2d(channels // reduction, channels, kernel_size=1, padding=0, bias=False)
+        self.fc2 = Conv2d(d , channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
 
     def forward(self, x):
@@ -79,7 +80,7 @@ class Apply_Mask(Module):
         S = torch.ones_like(x_mask)
         for i in range(len(S)):
             S[i, h1[i]:h2[i] + 1, w1[i]:w2[i] + 1] = 0  # 公式5
-        # 加权并规范化  公式6
+        # mask并规范化  公式6
         S_flatten = S.reshape(S.shape[0], -1)
         λ = S_flatten.shape[-1] / S_flatten.sum(dim=-1)
         x_mask = x_mask * S * λ.reshape(λ.shape[0], 1, 1)
