@@ -68,8 +68,8 @@ class Apply_Mask(Module):
         x_mask = x[index]
         # 每张特征图最大值索引max_index
         x_mask_squeeze = x_mask.reshape(x_mask.shape[0], -1)
-        index = x_mask_squeeze.argmax(dim=1)
-        max_index_h, max_index_w = index // w, index % w
+        max_index = x_mask_squeeze.argmax(dim=1)
+        max_index_h, max_index_w = max_index // w, max_index % w
         # 生成kxk屏蔽矩阵S  公式4
         h1 = max_index_h - (self.drop_block / 2.).floor()
         h2 = max_index_h + (self.drop_block / 2.).floor()
