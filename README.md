@@ -16,9 +16,9 @@
 ```python
 import TargetDrop
 class MyNet():
-    def __init__(self,channels):
+    def __init__(self):
         ...
-        self.target_drop=TargetDrop(channels)
+        self.target_drop=TargetDrop(in_channels)
     def forward(self, x):
         ...
         x=self.target_drop(x)

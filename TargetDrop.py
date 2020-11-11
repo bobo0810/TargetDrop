@@ -64,10 +64,10 @@ class Apply_Mask(Module):
         # 提取目标特征图x_mask
         x = x.reshape(-1, h, w)
         T = T.reshape(-1, 1)
-        index = torch.nonzero(T, as_tuple=True)[0]  # 非0索引
+        index = torch.nonzero(T, as_tuple=True)[0] # 非0索引
         x_mask = x[index]
         # 每张特征图最大值索引max_index
-        x_mask_squeeze = x_mask.reshape(x_mask.shape[0], -1)
+        x_mask_squeeze = x_mask.reshape(x_mask.shape[0], -1).detach()
         max_index = x_mask_squeeze.argmax(dim=1)
         max_index_h, max_index_w = max_index // w, max_index % w
         # 生成kxk屏蔽矩阵S  公式4
@@ -79,15 +79,14 @@ class Apply_Mask(Module):
         w1, w2 = torch.clamp(torch.cat((w1.unsqueeze(0), w2.unsqueeze(0))), min=0, max=w - 1).int()
         S = torch.ones_like(x_mask)
         for i in range(len(S)):
-            S[i, h1[i]:h2[i] + 1, w1[i]:w2[i] + 1] = 0  # 公式5
+            S[i, h1[i]:h2[i] + 1, w1[i]:w2[i] + 1] = 0    # 公式5
         # mask并规范化  公式6
         S_flatten = S.reshape(S.shape[0], -1)
         λ = S_flatten.shape[-1] / S_flatten.sum(dim=-1)
-        x_mask = x_mask * S * λ.reshape(λ.shape[0], 1, 1)
-        # 根据序号放回原特征图中
-        x[index] = x_mask
+        x_mask= x_mask * S * λ.reshape(λ.shape[0], 1, 1)
+        # 根据序号 放回特征图内
+        x[index]=x_mask
         return x.reshape(batch, channel, h, w)
-
 
 class TargetDrop(Module):
     def __init__(self, channels, reduction=16, drop_prob=0.15, drop_block=5):
@@ -103,6 +102,8 @@ class TargetDrop(Module):
         self.Select_TopK = Select_TopK(int(channels * drop_prob))
         self.Apply_Mask = Apply_Mask(drop_block)
         self.initialize_weights()
+
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
 
     def initialize_weights(self):
         for m in self.modules():
@@ -124,24 +125,28 @@ class TargetDrop(Module):
         :return:
         '''
         if self.training:
+            # 复制新特征图，同时保留在计算图内
+            x_clone=x.clone()
             # 通道注意力权重 [batch,channel,1,1]
-            M = self.SEModule(x)
+            M = self.SEModule(x_clone)
             # 标记通道 0-1  [batch,channel,1,1]
             T = self.Select_TopK(M)
             # [batch,channel,H,W]
-            return self.Apply_Mask(x, T)
+            return self.Apply_Mask(x_clone, T)
         else:
             return x  # eval模式无需drop
-
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = "1"
     device = torch.device("cuda:0")
     # [batch,channel,H,W]
     feature = torch.rand(8, 64, 24, 22).to(device)
+    # 验证前向过程中的变量是否需要梯度
+    feature.requires_grad=True
     channels = feature.shape[1]
     target_drop = TargetDrop(channels=channels).to(device)
     target_drop = target_drop.train()
 
     result = target_drop(feature)
     print(result.size())
+
